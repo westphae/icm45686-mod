@@ -1,0 +1,11 @@
+The kernel-driver source files in this repository (inv_icm45600*.c, inv_icm45600*.h) are vendored verbatim from the Linux kernel mainline tree
+(drivers/iio/imu/inv_icm45600/) and are licensed GPL-2.0-or-later. They retain
+their original SPDX-License-Identifier headers; consult those files and the
+mainline Linux LICENSES/ directory for the full license text.
+
+The build glue (Kbuild, Makefile) and the device-tree overlay
+(dts/icm45686-overlay.dts) added by this repository are also released under
+GPL-2.0-or-later.
+
+You should have received a copy of the GNU General Public License along with
+the Linux kernel; if not, see <https://www.gnu.org/licenses/>.
