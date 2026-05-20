@@ -1,0 +1,51 @@
+/*
+ * Device-tree overlay for the InvenSense/TDK ICM-45686 6-axis IMU on the
+ * Raspberry Pi user-facing I2C bus (i2c-1, GPIO 2/3).
+ *
+ * Build:        dtc -@ -I dts -O dtb -o icm45686.dtbo icm45686-overlay.dts
+ * Activate:     copy to /boot/firmware/overlays/ then add to /boot/firmware/config.txt:
+ *                 dtoverlay=icm45686               # defaults to addr 0x68 (AP_AD0 = 0)
+ *                 dtoverlay=icm45686,addr=0x69     # AP_AD0 pin tied high
+ *
+ * If your sensor is on a different I2C bus, change `target = <&i2c1>` below.
+ *
+ * Optional: INT1 data-ready interrupt. If you've wired the chip's INT1 pin
+ * to a Pi GPIO, uncomment the `interrupt-parent` and `interrupts` lines
+ * below and edit the GPIO number. The driver will then register a
+ * data-ready iio_trigger and auto-attach it, eliminating the need for
+ * iio-trig-hrtimer. INT1 defaults to push-pull active-high — use
+ * IRQ_TYPE_EDGE_RISING (= 1). Reconfigure in INT1_CONFIG0 if you want
+ * open-drain / active-low.
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	fragment@0 {
+		target = <&i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			icm45686: icm45686@68 {
+				compatible = "invensense,icm45686";
+				reg = <0x68>;
+				status = "okay";
+				/* mount-matrix = "1","0","0","0","1","0","0","0","1"; */
+
+				/* INT1 → GPIO17 example (edit GPIO# and uncomment to use):
+				 * interrupt-parent = <&gpio>;
+				 * interrupts = <17 1>;
+				 */
+			};
+		};
+	};
+
+	__overrides__ {
+		addr = <&icm45686>,"reg:0";
+	};
+};
