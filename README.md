@@ -2,7 +2,7 @@ ICM45686-mod
 ============
 Out-of-tree Linux IIO driver for the [InvenSense/TDK **ICM-45686**](https://invensense.tdk.com/products/motion-tracking/6-axis/icm-45686/) 6-axis IMU (3-axis accel + 3-axis gyro + temperature) over I²C, plus a Raspberry Pi device-tree overlay so the chip auto-binds at boot.
 
-This repo vendors the mainline `drivers/iio/imu/inv_icm45600` driver from `torvalds/linux` and wraps it for out-of-tree (OOT) builds. The upstream driver supports the entire ICM-456xx family (ICM-45605/45606/45608/45634/**45686**/45687/45688-P/45689); we just need an OOT build of it because the Raspberry Pi 6.18 kernel doesn't ship that driver yet (only `inv_icm42600` and `inv_mpu6050`).
+This repo vendors the mainline `drivers/iio/imu/inv_icm45600` driver from `torvalds/linux` and wraps it for out-of-tree (OOT) builds. The upstream driver supports the entire ICM-456xx family (ICM-45605/45606/45608/45634/**45686**/45687/45688-P/45689); we just need an OOT build of it because the Raspberry Pi 6.18 kernel doesn't ship that driver yet (only `inv_icm42600` and `inv_mpu6050`). Hardware FIFO is implemented in the vendored driver; see [TODO.md](TODO.md) for INT1 bring-up and kingfisher integration work.
 
 Tested target: Raspberry Pi running kernel `6.18.29+rpt-rpi-v8` (Debian Trixie). The chip is expected to live on `i2c-1` at address `0x68` (AP_AD0 = 0).
 

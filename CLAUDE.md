@@ -63,7 +63,7 @@ If you ever need SPI or I3C support, drop the corresponding `inv_icm45600_spi.c`
 | I3C bus | ✓ (same) |
 | Accel/gyro raw + scale + ODR | ✓ |
 | Low-pass filter (UI path) | ✓ |
-| Hardware FIFO + buffered IIO | ✓ |
+| Hardware FIFO + buffered IIO | ✓ (vendored upstream; see [TODO.md](TODO.md) for INT/kingfisher bring-up) |
 | INT1 data-ready trigger | ✓ (**required** — probe fails without an `int1` interrupt in DT; see DT overlay section) |
 | WoM / APEX motion functions | ✗ (not in the mainline driver as of the pinned SHA) |
 | Self-test | ✗ (not in mainline yet) |
