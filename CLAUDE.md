@@ -48,7 +48,9 @@ If you ever need SPI or I3C support, drop the corresponding `inv_icm45600_spi.c`
 
 ## DT overlay
 
-`dts/icm45686-overlay.dts` is a standard Pi overlay targeting `&i2c1`. Defaults: `compatible = "invensense,icm45686"`, `reg = <0x68>`. Overrides: `addr=` (e.g. `dtoverlay=icm45686,addr=0x69`). Optional `interrupts` entry for INT1 data-ready (commented by default; the driver registers an `iio_trigger` only if an IRQ is supplied).
+`dts/icm45686-overlay.dts` is a standard Pi overlay targeting `&i2c1`. Defaults: `compatible = "invensense,icm45686"`, `reg = <0x68>`. Overrides: `addr=` (e.g. `dtoverlay=icm45686,addr=0x69`).
+
+**INT1 is mandatory, not optional.** The mainline driver calls `fwnode_irq_get_byname(fwnode, "int1")` in probe (`inv_icm45600_core.c`) and aborts with `-EINVAL` ("Missing int1 interrupt") if it's absent — so without a wired-up INT1 the device node binds but the driver never probes (no `UU` in `i2cdetect`, no `iio:deviceN`). The chip's INT1 pin must be wired to a Pi GPIO and described in the overlay by **all three** of `interrupt-parent`, `interrupts`, and `interrupt-names = "int1"`. The name property is required because the driver looks the IRQ up by name, not index. The shipped overlay uses BCM GPIO17 (header pin 11), `interrupts = <17 1>` (`IRQ_TYPE_EDGE_RISING`, matching INT1's default push-pull active-high).
 
 **Address conflict caveat**: this Pi historically ran an `icm20948` at 0x68 on i2c-1 — disable that overlay (or strap one chip to 0x69) before installing this one.
 
@@ -62,7 +64,7 @@ If you ever need SPI or I3C support, drop the corresponding `inv_icm45600_spi.c`
 | Accel/gyro raw + scale + ODR | ✓ |
 | Low-pass filter (UI path) | ✓ |
 | Hardware FIFO + buffered IIO | ✓ |
-| INT1 data-ready trigger | ✓ (auto-registered when `interrupts` is in DT) |
+| INT1 data-ready trigger | ✓ (**required** — probe fails without an `int1` interrupt in DT; see DT overlay section) |
 | WoM / APEX motion functions | ✗ (not in the mainline driver as of the pinned SHA) |
 | Self-test | ✗ (not in mainline yet) |
 | DMP / EDMP gesture engine | ✗ (firmware blob, not in mainline) |

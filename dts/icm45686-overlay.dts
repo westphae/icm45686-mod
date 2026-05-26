@@ -9,13 +9,12 @@
  *
  * If your sensor is on a different I2C bus, change `target = <&i2c1>` below.
  *
- * Optional: INT1 data-ready interrupt. If you've wired the chip's INT1 pin
- * to a Pi GPIO, uncomment the `interrupt-parent` and `interrupts` lines
- * below and edit the GPIO number. The driver will then register a
- * data-ready iio_trigger and auto-attach it, eliminating the need for
- * iio-trig-hrtimer. INT1 defaults to push-pull active-high — use
- * IRQ_TYPE_EDGE_RISING (= 1). Reconfigure in INT1_CONFIG0 if you want
- * open-drain / active-low.
+ * INT1 data-ready interrupt is MANDATORY. The mainline driver calls
+ * fwnode_irq_get_byname(.., "int1") and aborts probe with -EINVAL if it is
+ * missing, so the chip's INT1 pin must be wired to a Pi GPIO and described
+ * by all three of interrupt-parent / interrupts / interrupt-names below.
+ * INT1 defaults to push-pull active-high — use IRQ_TYPE_EDGE_RISING (= 1).
+ * Reconfigure in INT1_CONFIG0 if you want open-drain / active-low.
  */
 
 /dts-v1/;
@@ -37,10 +36,12 @@
 				status = "okay";
 				/* mount-matrix = "1","0","0","0","1","0","0","0","1"; */
 
-				/* INT1 → GPIO17 example (edit GPIO# and uncomment to use):
-				 * interrupt-parent = <&gpio>;
-				 * interrupts = <17 1>;
-				 */
+				/* INT1 data-ready, wired to BCM GPIO17 (header pin 11).
+				 * interrupt-names = "int1" is required: the driver looks
+				 * the IRQ up by name, not by index. */
+				interrupt-parent = <&gpio>;
+				interrupts = <17 1>;
+				interrupt-names = "int1";
 			};
 		};
 	};
