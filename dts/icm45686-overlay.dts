@@ -13,8 +13,12 @@
  * fwnode_irq_get_byname(.., "int1") and aborts probe with -EINVAL if it is
  * missing, so the chip's INT1 pin must be wired to a Pi GPIO and described
  * by all three of interrupt-parent / interrupts / interrupt-names below.
- * INT1 defaults to push-pull active-high — use IRQ_TYPE_EDGE_RISING (= 1).
- * Reconfigure in INT1_CONFIG0 if you want open-drain / active-low.
+ * Default: GPIO17 + IRQ_TYPE_EDGE_RISING (= 1). Many boards wire active-low INT1;
+ * if /proc/interrupts stays at 0 but buffered reads work, use
+ *   dtoverlay=icm45686,int_trigger=8
+ * (LEVEL_LOW, matches driver active-low INT1 while FIFO threshold is asserted).
+ * Edge types (2=falling) can miss narrow or already-low lines. Open-drain INT:
+ * add drive-open-drain on icm45686@68 plus a GPIO pull-up.
  */
 
 /dts-v1/;
@@ -42,11 +46,18 @@
 				interrupt-parent = <&gpio>;
 				interrupts = <17 1>;
 				interrupt-names = "int1";
+				/* Uncomment if INT1 is open-drain (needs GPIO pull-up):
+				 * drive-open-drain;
+				 */
 			};
 		};
 	};
 
 	__overrides__ {
 		addr = <&icm45686>,"reg:0";
+		/* First cell: BCM GPIO (default 17 = header pin 11). */
+		int_gpio = <&icm45686>,"interrupts:0";
+		/* Second cell: Linux irq type (1=rising, 2=falling, 4=level-high, 8=level-low). */
+		int_trigger = <&icm45686>,"interrupts:4";
 	};
 };
