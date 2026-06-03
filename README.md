@@ -115,19 +115,29 @@ Once bound, the chip presents as a single IIO device under `/sys/bus/iio/devices
 
 Add `mount-matrix = "row1col1","row1col2",...,"row3col3";` to the overlay's `icm45686@68 { ... }` node to expose `/sys/bus/iio/devices/iio:deviceN/in_mount_matrix`, used by userspace to rotate samples from the chip body frame into the board reference frame.
 
-### Buffered streaming via INT1
+### Buffered streaming via INT1 (required)
 
-If the chip's INT1 pin is wired to a Pi GPIO and declared in DT, the driver registers an `iio_trigger` and auto-attaches it for high-rate buffered capture. Uncomment the `interrupt-parent` / `interrupts` lines in `dts/icm45686-overlay.dts`, set the GPIO number, then rebuild and reinstall the overlay. INT1 default polarity is push-pull active-high (`IRQ_TYPE_EDGE_RISING = 1`); see datasheet §17 register `INT1_CONFIG0` if you've changed it.
+Probe **requires** INT1 in device tree (`interrupt-names = "int1"`). The overlay defaults to **BCM GPIO17** (header pin 11). Override after install:
 
-Without an IRQ, use an `iio-trig-hrtimer`:
+```text
+dtoverlay=icm45686,int_gpio=27
+dtoverlay=icm45686,int_trigger=8
+```
+
+Use **`int_trigger=8`** (level-low) when `int1_verify.sh` shows buffered reads OK but edge IRQ counts stay at zero — typical for active-low INT1 on this driver.
+
+Rebuild/reinstall the overlay when changing the DTS default.
+
+The driver exposes separate IIO devices `icm45686-gyro` and `icm45686-accel` (no `trigger/current_trigger` sysfs). FIFO watermark IRQs are handled inside `inv_icm45600`; userspace reads `/dev/iio:deviceN` and the kernel flushes the chip FIFO into the buffer.
+
+Verify INT1 wiring and IRQ activity:
 
 ```sh
-sudo modprobe iio-trig-hrtimer
-sudo mkdir /sys/kernel/config/iio/triggers/hrtimer/icmtrig
-echo 100 | sudo tee /sys/bus/iio/devices/triggerN/sampling_frequency
-echo icmtrig | sudo tee /sys/bus/iio/devices/iio:deviceN/trigger/current_trigger
-# enable channels via scan_elements/in_*_en, set buffer/length, then enable buffer
+chmod +x tests/int1_verify.sh
+sudo tests/int1_verify.sh
 ```
+
+The script passes when buffered reads return data. A rising `inv_icm45600` count in `/proc/interrupts` confirms the INT1 watermark path is firing; if reads work but the count stays zero, use **`int_trigger=8`** (level-low) rather than edge types. On Pi 5 the DT node lives under `.../rp1/i2c@74000/icm45686@68`, not the legacy `soc/i2c@7e804000` path. Header **pin 11 = BCM GPIO17** (overlay default). Overrides: `int_gpio`, `int_trigger`.
 
 Dev / one-shot (no reboot)
 --------------------------
