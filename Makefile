@@ -3,6 +3,14 @@ DTBO_DIR  ?= $(firstword $(wildcard /boot/firmware/overlays /boot/overlays))
 CONFIG_TXT ?= $(firstword $(wildcard /boot/firmware/config.txt /boot/config.txt))
 DTC       ?= dtc
 
+# DKMS packaging: keep the module alive across kernel upgrades (AUTOINSTALL=yes
+# in dkms.conf). PACKAGE_VERSION here must match dkms.conf.
+DKMS_PACKAGE ?= icm45686
+DKMS_VERSION ?= 1.0
+DKMS_SRC     ?= /usr/src/$(DKMS_PACKAGE)-$(DKMS_VERSION)
+# Files DKMS needs to build the module (driver sources + kbuild glue + config).
+DKMS_FILES    = dkms.conf Kbuild $(wildcard inv_icm45600*.c inv_icm45600*.h)
+
 all:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
 
@@ -16,6 +24,13 @@ clean:
 	rm -f dts/*.dtbo
 
 modules_install:
+	@if dkms status $(DKMS_PACKAGE) 2>/dev/null | grep -q ': installed'; then \
+		echo "ERROR: $(DKMS_PACKAGE) is managed by DKMS (see 'dkms status')."; \
+		echo "A plain module install into updates/ collides with DKMS's updates/dkms/"; \
+		echo "and will make a later 'dkms install' abort."; \
+		echo "Use 'make dkms-install' instead, or run 'make dkms-uninstall' first."; \
+		exit 1; \
+	fi
 	$(MAKE) -C $(KDIR) M=$(CURDIR) modules_install
 	depmod -a
 
@@ -33,7 +48,30 @@ config_enable:
 		echo "appended dtoverlay=icm45686 to $(CONFIG_TXT) -- reboot to activate"; \
 	fi
 
+# Overlay-only install: everything DKMS does NOT manage. Use this after
+# 'make dkms-install' -- DKMS handles the .ko, this handles the .dtbo + config.txt.
+overlay-install: dtbo_install config_enable
+
+# Manual (non-DKMS) persistent install. Mutually exclusive with DKMS:
+# modules_install aborts if DKMS already manages the module.
 install: modules_install dtbo_install config_enable
+
+# --- DKMS ----------------------------------------------------------------
+# Copy the sources into /usr/src (a stable location that survives repo moves,
+# unlike a symlink into the working tree) and register + build + install with
+# DKMS. Re-run after any driver-source change to re-copy and rebuild. Needs
+# root and matching kernel headers (linux-headers-rpi-2712 on Pi 5).
+dkms-install:
+	rm -rf $(DKMS_SRC)
+	install -d $(DKMS_SRC)
+	cp -a $(DKMS_FILES) $(DKMS_SRC)/
+	dkms add $(DKMS_PACKAGE)/$(DKMS_VERSION)
+	dkms build $(DKMS_PACKAGE)/$(DKMS_VERSION)
+	dkms install $(DKMS_PACKAGE)/$(DKMS_VERSION)
+
+dkms-uninstall:
+	-dkms remove $(DKMS_PACKAGE)/$(DKMS_VERSION) --all
+	rm -rf $(DKMS_SRC)
 
 # Create the /lib/modules/$(uname -r)/build symlink that kbuild needs for
 # out-of-tree module builds. Use this when the running kernel has no
@@ -71,4 +109,5 @@ setup-kbuild:
 	ln -sT "$(KSRC)" "$$LINK"; \
 	echo "linked $$LINK -> $(KSRC)"
 
-.PHONY: all dtbo clean modules_install dtbo_install config_enable install setup-kbuild
+.PHONY: all dtbo clean modules_install dtbo_install config_enable install \
+        overlay-install dkms-install dkms-uninstall setup-kbuild

@@ -45,9 +45,54 @@ sudo make -C /path/to/icm45686-mod setup-kbuild KSRC=/root/linux
 
 `setup-kbuild` verifies the KSRC tree matches `$(uname -r)` and has `Module.symvers`, then creates the symlink. Re-run after anything (apt updates, depmod sweeps) wipes it.
 
-Install (persistent)
---------------------
+Install (persistent, via DKMS — recommended)
+--------------------------------------------
+DKMS rebuilds the module automatically on every kernel upgrade, so a routine
+`apt` kernel bump can't silently leave you with a dead sensor. This is the
+recommended install on any machine that gets kernel updates.
+
 On a Raspberry Pi with the sensor wired to `i2c-1` at `0x68`:
+
+```sh
+sudo apt install -y dkms linux-headers-rpi-2712   # meta-pkg tracks the running kernel
+sudo make dkms-install                            # copies sources to /usr/src, dkms add/build/install
+sudo make overlay-install                         # dtbo + config.txt (DKMS does not manage these)
+sudo reboot
+```
+
+- **`make dkms-install`** copies the driver sources into `/usr/src/icm45686-1.0`,
+  then runs `dkms add/build/install`. The module lands in
+  `/lib/modules/$(uname -r)/updates/dkms/`. `AUTOINSTALL=yes` (in `dkms.conf`)
+  rebuilds it for each new kernel — provided `linux-headers-rpi-2712` keeps the
+  matching headers installed. Re-run `sudo make dkms-install` after editing any
+  driver source (it re-copies `/usr/src` and rebuilds).
+- **`make overlay-install`** = `dtbo_install` + `config_enable`: builds
+  `dts/icm45686.dtbo` into `/boot/firmware/overlays/` (falls back to
+  `/boot/overlays/`; override `DTBO_DIR=...`) and appends `dtoverlay=icm45686`
+  to `/boot/firmware/config.txt` (override `CONFIG_TXT=...`) if not present.
+
+Sources are **copied** into `/usr/src`, not symlinked, so moving or renaming
+this repo won't break the autoinstall rebuild — the failure mode DKMS exists to
+prevent. The cost is that you must re-run `make dkms-install` after source edits.
+
+Verify: `dkms status` should show `icm45686/1.0, <kernel>: installed`.
+
+After reboot the kernel matches the overlay's `compatible = "invensense,icm45686"` against `inv-icm45600-i2c`'s OF table and probes automatically. Sensor data appears under `/sys/bus/iio/devices/iio:deviceN/` with `name` reading `icm45686`.
+
+Rebuild after a driver-source change:
+
+```sh
+sudo make dkms-install    # re-copies /usr/src and rebuilds for the running kernel
+```
+
+Install (persistent, manual — non-DKMS)
+---------------------------------------
+If you don't want DKMS (e.g. a fixed kernel that never updates), install the
+module by hand. **This is mutually exclusive with DKMS**: a hand-installed
+`.ko` in `.../updates/` collides with DKMS's `.../updates/dkms/` and makes a
+later `dkms install` abort, so `make install`'s `modules_install` step aborts
+if `dkms status` shows the module is DKMS-managed. Run `sudo make dkms-uninstall`
+first if you're switching away from DKMS.
 
 ```sh
 sudo make install
@@ -56,11 +101,9 @@ sudo reboot
 
 That target:
 
-1. `modules_install` — copies both `.ko` files into `/lib/modules/$(uname -r)/updates/` (or `extra/` depending on kbuild version) and runs `depmod -a`.
+1. `modules_install` — copies both `.ko` files into `/lib/modules/$(uname -r)/updates/` (or `extra/` depending on kbuild version) and runs `depmod -a`. Aborts if DKMS manages the module.
 2. `dtbo_install` — builds `dts/icm45686-overlay.dts` and copies `icm45686.dtbo` into `/boot/firmware/overlays/` (falls back to `/boot/overlays/`; override with `DTBO_DIR=...`).
 3. `config_enable` — appends `dtoverlay=icm45686` to `/boot/firmware/config.txt` (or `/boot/config.txt`; override with `CONFIG_TXT=...`) if not already present.
-
-After reboot the kernel matches the overlay's `compatible = "invensense,icm45686"` against `inv-icm45600-i2c`'s OF table and probes automatically. Sensor data appears under `/sys/bus/iio/devices/iio:deviceN/` with `name` reading `icm45686`.
 
 If your sensor uses address 0x69 (AP_AD0 tied high), pass the override:
 
@@ -170,6 +213,17 @@ Troubleshooting
 
 Uninstall
 ---------
+DKMS install:
+
+```sh
+sudo make dkms-uninstall                       # dkms remove --all + rm /usr/src/icm45686-1.0
+sudo rm /boot/firmware/overlays/icm45686.dtbo
+sudo sed -i '/^dtoverlay=icm45686/d' /boot/firmware/config.txt
+sudo reboot
+```
+
+Manual (non-DKMS) install:
+
 ```sh
 sudo rm /boot/firmware/overlays/icm45686.dtbo
 sudo sed -i '/^dtoverlay=icm45686/d' /boot/firmware/config.txt
