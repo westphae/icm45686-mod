@@ -61,7 +61,12 @@ install: modules_install dtbo_install config_enable
 # unlike a symlink into the working tree) and register + build + install with
 # DKMS. Re-run after any driver-source change to re-copy and rebuild. Needs
 # root and matching kernel headers (linux-headers-rpi-2712 on Pi 5).
+# The leading remove makes this idempotent: DKMS refuses to 'add' a
+# version it already tracks, so an existing registration (from a prior run or
+# the old symlink layout) must be cleared first. '-' ignores its failure on a
+# first-ever install when nothing is registered yet.
 dkms-install:
+	-dkms remove $(DKMS_PACKAGE)/$(DKMS_VERSION) --all
 	rm -rf $(DKMS_SRC)
 	install -d $(DKMS_SRC)
 	cp -a $(DKMS_FILES) $(DKMS_SRC)/
