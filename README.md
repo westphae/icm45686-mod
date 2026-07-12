@@ -160,14 +160,14 @@ Add `mount-matrix = "row1col1","row1col2",...,"row3col3";` to the overlay's `icm
 
 ### Buffered streaming via INT1 (required)
 
-Probe **requires** INT1 in device tree (`interrupt-names = "int1"`). The overlay defaults to **BCM GPIO17** (header pin 11). Override after install:
+Probe **requires** INT1 in device tree (`interrupt-names = "int1"`). The overlay defaults to **BCM GPIO17** (header pin 11) and **`IRQ_TYPE_LEVEL_LOW`** (`interrupts = <17 8>`), which matches the driver's active-low INT1 — the configuration that actually fires on the boards we deploy. Override after install:
 
 ```text
 dtoverlay=icm45686,int_gpio=27
-dtoverlay=icm45686,int_trigger=8
+dtoverlay=icm45686,int_trigger=1
 ```
 
-Use **`int_trigger=8`** (level-low) when `int1_verify.sh` shows buffered reads OK but edge IRQ counts stay at zero — typical for active-low INT1 on this driver.
+Use **`int_trigger=1`** (edge-rising) only for a push-pull active-high INT1. If `int1_verify.sh` shows buffered reads OK but the `/proc/interrupts` count stays at zero, you're on the wrong trigger type — the level-low default is correct for active-low INT1.
 
 Rebuild/reinstall the overlay when changing the DTS default.
 
@@ -180,7 +180,7 @@ chmod +x tests/int1_verify.sh
 sudo tests/int1_verify.sh
 ```
 
-The script passes when buffered reads return data. A rising `inv_icm45600` count in `/proc/interrupts` confirms the INT1 watermark path is firing; if reads work but the count stays zero, use **`int_trigger=8`** (level-low) rather than edge types. On Pi 5 the DT node lives under `.../rp1/i2c@74000/icm45686@68`, not the legacy `soc/i2c@7e804000` path. Header **pin 11 = BCM GPIO17** (overlay default). Overrides: `int_gpio`, `int_trigger`.
+The script passes when buffered reads return data. A rising `inv_icm45600` count in `/proc/interrupts` confirms the INT1 watermark path is firing; the overlay default `int_trigger=8` (level-low) is what makes that count rise on active-low INT1 — only switch to an edge type (`int_trigger=1`) if your board has a push-pull active-high INT1. On Pi 5 the DT node lives under `.../rp1/i2c@74000/icm45686@68`, not the legacy `soc/i2c@7e804000` path. Header **pin 11 = BCM GPIO17** (overlay default). Overrides: `int_gpio`, `int_trigger`.
 
 Dev / one-shot (no reboot)
 --------------------------
