@@ -355,9 +355,12 @@ int inv_icm45600_set_accel_conf(struct inv_icm45600_state *st,
 
 	inv_icm45600_set_default_conf(conf, oldconf);
 
-	/* Force the power mode against the ODR when sensor is on. */
+	/*
+	 * Prefer Low-Noise whenever the ODR allows it (LN: 12.5 Hz–6.4 kHz).
+	 * Only ODRs below 12.5 Hz are LP-only on this chip.
+	 */
 	if (conf->mode > INV_ICM45600_SENSOR_MODE_STANDBY) {
-		if (conf->odr <= INV_ICM45600_ODR_800HZ_LN) {
+		if (conf->odr <= INV_ICM45600_ODR_12_5HZ) {
 			conf->mode = INV_ICM45600_SENSOR_MODE_LOW_NOISE;
 		} else {
 			conf->mode = INV_ICM45600_SENSOR_MODE_LOW_POWER;
@@ -910,7 +913,7 @@ static int _inv_icm45600_temp_read(struct inv_icm45600_state *st, s16 *temp)
 	/* Make sure a sensor is on. */
 	if (st->conf.gyro.mode == INV_ICM45600_SENSOR_MODE_OFF &&
 	    st->conf.accel.mode == INV_ICM45600_SENSOR_MODE_OFF) {
-		conf.mode = INV_ICM45600_SENSOR_MODE_LOW_POWER;
+		conf.mode = INV_ICM45600_SENSOR_MODE_LOW_NOISE;
 		ret = inv_icm45600_set_accel_conf(st, &conf, NULL);
 		if (ret)
 			return ret;

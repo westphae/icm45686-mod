@@ -703,8 +703,12 @@ struct iio_dev *inv_icm45600_accel_init(struct inv_icm45600_state *st)
 	accel_st->scales = st->chip_info->accel_scales;
 	accel_st->scales_len = st->chip_info->accel_scales_len * 2;
 
-	/* low-power (LP) mode by default at init, no ULP mode */
-	accel_st->power_mode = INV_ICM45600_SENSOR_MODE_LOW_POWER;
+	/* Low-Noise by default (kingfisher is powered; prefer datasheet noise path). */
+	accel_st->power_mode = INV_ICM45600_SENSOR_MODE_LOW_NOISE;
+	/*
+	 * ACCEL_LP_CLK_SEL only matters when ACCEL_MODE is LP (ALP vs AULP).
+	 * Keep it set so a future LP ODR (<12.5 Hz) still gets ALP timing.
+	 */
 	ret = regmap_set_bits(st->map, INV_ICM45600_REG_SMC_CONTROL_0,
 			      INV_ICM45600_SMC_CONTROL_0_ACCEL_LP_CLK_SEL);
 	if (ret)
