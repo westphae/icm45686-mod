@@ -154,6 +154,19 @@ Once bound, the chip presents as a single IIO device under `/sys/bus/iio/devices
 | `in_anglvel_*` | rad/s | ±4000 dps (driver default) | 15.625 / 31.25 / 62.5 / 125 / 250 / 500 / 1000 / 2000 / **4000** dps |
 | `in_temp` | milli-°C | — | — |
 
+### UI-path low-pass filter
+
+`in_accel_filter_low_pass_3db_frequency` and `in_anglvel_filter_low_pass_3db_frequency` control the chip's **UI-path** digital LPF (Low-Noise mode), distinct from the Low-Power averaging filter programmed internally for LP ODRs. Values are absolute Hz derived from the current `sampling_frequency` (ODR):
+
+| Setting | Meaning |
+|---|---|
+| `0` | Bypass |
+| ODR/4 … ODR/128 | Cutoff = ODR divided by 4, 8, 16, 32, 64, or 128 |
+
+`*_available` lists bypass plus the six ODR/N ratios computed from the **current** ODR. Writes snap to the nearest available value.
+
+**Sticky ODR/N ratio:** changing `sampling_frequency` keeps the same hardware selector (`*_UI_LPFBW_SEL`); only the reported Hz and `*_available` list update. Example: at ODR=200 Hz, writing `12.5` selects ODR/16; raising ODR to 400 Hz leaves ODR/16 selected and readback becomes `25`.
+
 ### Mount matrix
 
 Add `mount-matrix = "row1col1","row1col2",...,"row3col3";` to the overlay's `icm45686@68 { ... }` node to expose `/sys/bus/iio/devices/iio:deviceN/in_mount_matrix`, used by userspace to rotate samples from the chip body frame into the board reference frame.

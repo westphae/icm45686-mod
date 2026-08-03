@@ -286,6 +286,139 @@ u32 inv_icm45600_odr_to_period(enum inv_icm45600_odr odr)
 	return odr_periods[odr];
 }
 
+static const int inv_icm45600_odr_hz[][2] = {
+	[INV_ICM45600_ODR_6400HZ_LN]   = { 6400, 0 },
+	[INV_ICM45600_ODR_3200HZ_LN]   = { 3200, 0 },
+	[INV_ICM45600_ODR_1600HZ_LN]   = { 1600, 0 },
+	[INV_ICM45600_ODR_800HZ_LN]    = { 800, 0 },
+	[INV_ICM45600_ODR_400HZ]       = { 400, 0 },
+	[INV_ICM45600_ODR_200HZ]       = { 200, 0 },
+	[INV_ICM45600_ODR_100HZ]       = { 100, 0 },
+	[INV_ICM45600_ODR_50HZ]        = { 50, 0 },
+	[INV_ICM45600_ODR_25HZ]        = { 25, 0 },
+	[INV_ICM45600_ODR_12_5HZ]      = { 12, 500000 },
+	[INV_ICM45600_ODR_6_25HZ_LP]   = { 6, 250000 },
+	[INV_ICM45600_ODR_3_125HZ_LP]  = { 3, 125000 },
+	[INV_ICM45600_ODR_1_5625HZ_LP] = { 1, 562500 },
+};
+
+static const u8 inv_icm45600_ui_lpf_div[] = { 0, 4, 8, 16, 32, 64, 128 };
+
+int inv_icm45600_odr_to_hz(enum inv_icm45600_odr odr, int *val, int *val2)
+{
+	if (odr < INV_ICM45600_ODR_6400HZ_LN || odr >= INV_ICM45600_ODR_MAX)
+		return -EINVAL;
+
+	*val = inv_icm45600_odr_hz[odr][0];
+	*val2 = inv_icm45600_odr_hz[odr][1];
+	return 0;
+}
+
+u8 inv_icm45600_ui_lpf_sel_normalize(u8 sel)
+{
+	if (sel > INV_ICM45600_UI_LPF_SEL_MAX)
+		return INV_ICM45600_UI_LPF_SEL_MAX;
+
+	return sel;
+}
+
+int inv_icm45600_ui_lpf_sel_to_hz(u8 sel, enum inv_icm45600_odr odr,
+				  int *val, int *val2)
+{
+	s64 odr_us, lpf_us;
+	int odr_val, odr_val2;
+	int ret;
+
+	sel = inv_icm45600_ui_lpf_sel_normalize(sel);
+	if (sel == 0) {
+		*val = 0;
+		*val2 = 0;
+		return 0;
+	}
+
+	ret = inv_icm45600_odr_to_hz(odr, &odr_val, &odr_val2);
+	if (ret)
+		return ret;
+
+	odr_us = (s64)odr_val * USEC_PER_SEC + odr_val2;
+	lpf_us = div_s64(odr_us, inv_icm45600_ui_lpf_div[sel]);
+	*val = div_s64(lpf_us, USEC_PER_SEC);
+	*val2 = div_s64(lpf_us % USEC_PER_SEC, 1);
+
+	return 0;
+}
+
+void inv_icm45600_ui_lpf_fill_avail(enum inv_icm45600_odr odr, int *avail)
+{
+	unsigned int i;
+
+	for (i = 0; i <= INV_ICM45600_UI_LPF_SEL_MAX; i++)
+		inv_icm45600_ui_lpf_sel_to_hz(i, odr, &avail[2 * i],
+					      &avail[2 * i + 1]);
+}
+
+u8 inv_icm45600_ui_lpf_nearest_sel(int val, int val2, enum inv_icm45600_odr odr)
+{
+	s64 target, candidate, diff, best_diff = S64_MAX;
+	u8 best_sel = 0;
+	unsigned int i;
+	int v, v2;
+
+	target = (s64)val * USEC_PER_SEC + (val >= 0 ? val2 : -val2);
+
+	for (i = 0; i <= INV_ICM45600_UI_LPF_SEL_MAX; i++) {
+		inv_icm45600_ui_lpf_sel_to_hz(i, odr, &v, &v2);
+		candidate = (s64)v * USEC_PER_SEC + (v >= 0 ? v2 : -v2);
+		diff = target > candidate ? target - candidate : candidate - target;
+		if (diff < best_diff) {
+			best_diff = diff;
+			best_sel = i;
+		}
+	}
+
+	return best_sel;
+}
+
+int inv_icm45600_set_accel_ui_lpf(struct inv_icm45600_state *st, u8 sel)
+{
+	unsigned int val;
+	int ret;
+
+	sel = inv_icm45600_ui_lpf_sel_normalize(sel);
+	if (sel == st->accel_ui_lpf_sel)
+		return 0;
+
+	val = FIELD_PREP(INV_ICM45600_IPREG_SYS2_131_ACCEL_UI_LPFBW_MASK, sel);
+	ret = regmap_update_bits(st->map, INV_ICM45600_IPREG_SYS2_REG_131,
+				 INV_ICM45600_IPREG_SYS2_131_ACCEL_UI_LPFBW_MASK,
+				 val);
+	if (ret)
+		return ret;
+
+	st->accel_ui_lpf_sel = sel;
+	return 0;
+}
+
+int inv_icm45600_set_gyro_ui_lpf(struct inv_icm45600_state *st, u8 sel)
+{
+	unsigned int val;
+	int ret;
+
+	sel = inv_icm45600_ui_lpf_sel_normalize(sel);
+	if (sel == st->gyro_ui_lpf_sel)
+		return 0;
+
+	val = FIELD_PREP(INV_ICM45600_IPREG_SYS1_172_GYRO_UI_LPFBW_MASK, sel);
+	ret = regmap_update_bits(st->map, INV_ICM45600_IPREG_SYS1_REG_172,
+				 INV_ICM45600_IPREG_SYS1_172_GYRO_UI_LPFBW_MASK,
+				 val);
+	if (ret)
+		return ret;
+
+	st->gyro_ui_lpf_sel = sel;
+	return 0;
+}
+
 static int inv_icm45600_set_pwr_mgmt0(struct inv_icm45600_state *st,
 				      enum inv_icm45600_sensor_mode gyro,
 				      enum inv_icm45600_sensor_mode accel,

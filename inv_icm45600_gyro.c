@@ -42,10 +42,12 @@ static const struct iio_chan_spec_ext_info inv_icm45600_gyro_ext_infos[] = {
 			BIT(IIO_CHAN_INFO_RAW) |			\
 			BIT(IIO_CHAN_INFO_CALIBBIAS),			\
 		.info_mask_shared_by_type =				\
-			BIT(IIO_CHAN_INFO_SCALE),			\
+			BIT(IIO_CHAN_INFO_SCALE) |			\
+			BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY), \
 		.info_mask_shared_by_type_available =			\
 			BIT(IIO_CHAN_INFO_SCALE) |			\
-			BIT(IIO_CHAN_INFO_CALIBBIAS),			\
+			BIT(IIO_CHAN_INFO_CALIBBIAS) |			\
+			BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY), \
 		.info_mask_shared_by_all =				\
 			BIT(IIO_CHAN_INFO_SAMP_FREQ),			\
 		.info_mask_shared_by_all_available =			\
@@ -539,6 +541,22 @@ static int inv_icm45600_gyro_write_offset(struct inv_icm45600_state *st,
 	return ret;
 }
 
+static int inv_icm45600_gyro_read_ui_lpf(struct inv_icm45600_state *st,
+					 int *val, int *val2)
+{
+	return inv_icm45600_ui_lpf_sel_to_hz(st->gyro_ui_lpf_sel,
+					     st->conf.gyro.odr, val, val2);
+}
+
+static int inv_icm45600_gyro_write_ui_lpf(struct inv_icm45600_state *st,
+					  int val, int val2)
+{
+	u8 sel;
+
+	sel = inv_icm45600_ui_lpf_nearest_sel(val, val2, st->conf.gyro.odr);
+	return inv_icm45600_set_gyro_ui_lpf(st, sel);
+}
+
 static int inv_icm45600_gyro_read_raw(struct iio_dev *indio_dev,
 				      struct iio_chan_spec const *chan,
 				      int *val, int *val2, long mask)
@@ -570,6 +588,9 @@ static int inv_icm45600_gyro_read_raw(struct iio_dev *indio_dev,
 		return inv_icm45600_gyro_read_odr(st, val, val2);
 	case IIO_CHAN_INFO_CALIBBIAS:
 		return inv_icm45600_gyro_read_offset(st, chan, val, val2);
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		return inv_icm45600_gyro_read_ui_lpf(st, val, val2) ?
+			-EINVAL : IIO_VAL_INT_PLUS_MICRO;
 	default:
 		return -EINVAL;
 	}
@@ -580,6 +601,7 @@ static int inv_icm45600_gyro_read_avail(struct iio_dev *indio_dev,
 					const int **vals,
 					int *type, int *length, long mask)
 {
+	struct inv_icm45600_state *st = iio_device_get_drvdata(indio_dev);
 	struct inv_icm45600_sensor_state *gyro_st = iio_priv(indio_dev);
 
 	if (chan->type != IIO_ANGL_VEL)
@@ -600,6 +622,13 @@ static int inv_icm45600_gyro_read_avail(struct iio_dev *indio_dev,
 		*vals = inv_icm45600_gyro_calibbias;
 		*type = IIO_VAL_INT_PLUS_NANO;
 		return IIO_AVAIL_RANGE;
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		inv_icm45600_ui_lpf_fill_avail(st->conf.gyro.odr,
+					       gyro_st->ui_lpf_avail);
+		*vals = gyro_st->ui_lpf_avail;
+		*type = IIO_VAL_INT_PLUS_MICRO;
+		*length = INV_ICM45600_UI_LPF_AVAIL_LEN;
+		return IIO_AVAIL_LIST;
 	default:
 		return -EINVAL;
 	}
@@ -630,6 +659,19 @@ static int inv_icm45600_gyro_write_raw(struct iio_dev *indio_dev,
 		ret = inv_icm45600_gyro_write_offset(st, chan, val, val2);
 		iio_device_release_direct(indio_dev);
 		return ret;
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY: {
+		struct device *dev = regmap_get_device(st->map);
+
+		ret = pm_runtime_resume_and_get(dev);
+		if (ret)
+			return ret;
+
+		scoped_guard(mutex, &st->lock)
+			ret = inv_icm45600_gyro_write_ui_lpf(st, val, val2);
+
+		pm_runtime_put_autosuspend(dev);
+		return ret;
+	}
 	default:
 		return -EINVAL;
 	}
@@ -649,6 +691,8 @@ static int inv_icm45600_gyro_write_raw_get_fmt(struct iio_dev *indio_dev,
 		return IIO_VAL_INT_PLUS_MICRO;
 	case IIO_CHAN_INFO_CALIBBIAS:
 		return IIO_VAL_INT_PLUS_NANO;
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		return IIO_VAL_INT_PLUS_MICRO;
 	default:
 		return -EINVAL;
 	}

@@ -163,12 +163,17 @@ struct inv_icm45600_state {
 		s64 accel;
 	} timestamp;
 	struct inv_icm45600_fifo fifo;
+	u8 accel_ui_lpf_sel;
+	u8 gyro_ui_lpf_sel;
 	union {
 		u8 buff[2];
 		__le16 u16;
 		u8 ireg[3];
 	} buffer __aligned(IIO_DMA_MINALIGN);
 };
+
+#define INV_ICM45600_UI_LPF_SEL_MAX			6
+#define INV_ICM45600_UI_LPF_AVAIL_LEN			((INV_ICM45600_UI_LPF_SEL_MAX + 1) * 2)
 
 /**
  * struct inv_icm45600_sensor_state - sensor state variables
@@ -182,6 +187,7 @@ struct inv_icm45600_sensor_state {
 	size_t scales_len;
 	enum inv_icm45600_sensor_mode power_mode;
 	struct inv_sensors_timestamp ts;
+	int ui_lpf_avail[INV_ICM45600_UI_LPF_AVAIL_LEN];
 };
 
 /* Virtual register addresses: @bank on MSB (16 bits), @address on LSB */
@@ -322,6 +328,11 @@ struct inv_icm45600_sensor_state {
 #define INV_ICM45600_IPREG_SYS2_REG_129			0xA581
 #define INV_ICM45600_ACCEL_LP_AVG_SEL_1X		0x0000
 #define INV_ICM45600_ACCEL_LP_AVG_SEL_4X		0x0002
+/* UI path low-pass filter (Low-Noise mode) */
+#define INV_ICM45600_IPREG_SYS1_REG_172			0xA4AC
+#define INV_ICM45600_IPREG_SYS1_172_GYRO_UI_LPFBW_MASK	GENMASK(2, 0)
+#define INV_ICM45600_IPREG_SYS2_REG_131			0xA583
+#define INV_ICM45600_IPREG_SYS2_131_ACCEL_UI_LPFBW_MASK	GENMASK(2, 0)
 
 /* Sleep times required by the driver */
 #define INV_ICM45600_ACCEL_STARTUP_TIME_MS	60
@@ -358,6 +369,21 @@ int inv_icm45600_temp_read_raw(struct iio_dev *indio_dev,
 			       int *val, int *val2, long mask);
 
 u32 inv_icm45600_odr_to_period(enum inv_icm45600_odr odr);
+
+int inv_icm45600_odr_to_hz(enum inv_icm45600_odr odr, int *val, int *val2);
+
+u8 inv_icm45600_ui_lpf_sel_normalize(u8 sel);
+
+int inv_icm45600_ui_lpf_sel_to_hz(u8 sel, enum inv_icm45600_odr odr,
+				  int *val, int *val2);
+
+void inv_icm45600_ui_lpf_fill_avail(enum inv_icm45600_odr odr, int *avail);
+
+u8 inv_icm45600_ui_lpf_nearest_sel(int val, int val2, enum inv_icm45600_odr odr);
+
+int inv_icm45600_set_accel_ui_lpf(struct inv_icm45600_state *st, u8 sel);
+
+int inv_icm45600_set_gyro_ui_lpf(struct inv_icm45600_state *st, u8 sel);
 
 int inv_icm45600_set_accel_conf(struct inv_icm45600_state *st,
 				struct inv_icm45600_sensor_conf *conf,
