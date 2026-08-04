@@ -8,6 +8,8 @@ DTC       ?= dtc
 DKMS_PACKAGE ?= icm45686
 DKMS_VERSION ?= 1.0
 DKMS_SRC     ?= /usr/src/$(DKMS_PACKAGE)-$(DKMS_VERSION)
+# Target kernel for dkms-install (default: currently running).
+KERNELRELEASE ?= $(shell uname -r)
 # Files DKMS needs to build the module (driver sources + kbuild glue + config).
 DKMS_FILES    = dkms.conf Kbuild $(wildcard inv_icm45600*.c inv_icm45600*.h)
 
@@ -57,22 +59,38 @@ overlay-install: dtbo_install config_enable
 install: modules_install dtbo_install config_enable
 
 # --- DKMS ----------------------------------------------------------------
-# Copy the sources into /usr/src (a stable location that survives repo moves,
-# unlike a symlink into the working tree) and register + build + install with
-# DKMS. Re-run after any driver-source change to re-copy and rebuild. Needs
-# root and matching kernel headers (linux-headers-rpi-2712 on Pi 5).
-# The leading remove makes this idempotent: DKMS refuses to 'add' a
-# version it already tracks, so an existing registration (from a prior run or
-# the old symlink layout) must be cleared first. '-' ignores its failure on a
-# first-ever install when nothing is registered yet.
-dkms-install:
+# Copy sources into /usr/src (stable across repo moves; not a symlink) and
+# register with DKMS if needed. Needs root + matching headers
+# (linux-headers-rpi-2712 on Pi 5).
+#
+# dkms-install: safe default — sync sources, rebuild/install for KERNELRELEASE
+#   only. Does NOT wipe builds for other installed kernels (important after
+#   apt upgrades a new kernel that AUTOINSTALL already built, while you are
+#   still running the old one).
+#
+# dkms-reinstall-all: nuclear — remove every kernel build, re-add from scratch,
+#   install for KERNELRELEASE, then `dkms autoinstall` for any other kernels
+#   that have headers. Use when sources/layout are badly wedged.
+dkms-sync-src:
+	install -d $(DKMS_SRC)
+	cp -a $(DKMS_FILES) $(DKMS_SRC)/
+	@if ! dkms status $(DKMS_PACKAGE)/$(DKMS_VERSION) 2>/dev/null | grep -q .; then \
+		dkms add $(DKMS_PACKAGE)/$(DKMS_VERSION); \
+	fi
+
+dkms-install: dkms-sync-src
+	dkms build $(DKMS_PACKAGE)/$(DKMS_VERSION) -k $(KERNELRELEASE) --force
+	dkms install $(DKMS_PACKAGE)/$(DKMS_VERSION) -k $(KERNELRELEASE) --force
+
+dkms-reinstall-all:
 	-dkms remove $(DKMS_PACKAGE)/$(DKMS_VERSION) --all
 	rm -rf $(DKMS_SRC)
 	install -d $(DKMS_SRC)
 	cp -a $(DKMS_FILES) $(DKMS_SRC)/
 	dkms add $(DKMS_PACKAGE)/$(DKMS_VERSION)
-	dkms build $(DKMS_PACKAGE)/$(DKMS_VERSION)
-	dkms install $(DKMS_PACKAGE)/$(DKMS_VERSION)
+	dkms build $(DKMS_PACKAGE)/$(DKMS_VERSION) -k $(KERNELRELEASE)
+	dkms install $(DKMS_PACKAGE)/$(DKMS_VERSION) -k $(KERNELRELEASE)
+	-dkms autoinstall
 
 dkms-uninstall:
 	-dkms remove $(DKMS_PACKAGE)/$(DKMS_VERSION) --all
@@ -115,4 +133,5 @@ setup-kbuild:
 	echo "linked $$LINK -> $(KSRC)"
 
 .PHONY: all dtbo clean modules_install dtbo_install config_enable install \
-        overlay-install dkms-install dkms-uninstall setup-kbuild
+        overlay-install dkms-sync-src dkms-install dkms-reinstall-all \
+        dkms-uninstall setup-kbuild

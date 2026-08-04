@@ -55,17 +55,21 @@ On a Raspberry Pi with the sensor wired to `i2c-1` at `0x68`:
 
 ```sh
 sudo apt install -y dkms linux-headers-rpi-2712   # meta-pkg tracks the running kernel
-sudo make dkms-install                            # copies sources to /usr/src, dkms add/build/install
+sudo make dkms-install                            # copies sources to /usr/src; build/install for running kernel
 sudo make overlay-install                         # dtbo + config.txt (DKMS does not manage these)
 sudo reboot
 ```
 
-- **`make dkms-install`** copies the driver sources into `/usr/src/icm45686-1.0`,
-  then runs `dkms add/build/install`. The module lands in
-  `/lib/modules/$(uname -r)/updates/dkms/`. `AUTOINSTALL=yes` (in `dkms.conf`)
-  rebuilds it for each new kernel — provided `linux-headers-rpi-2712` keeps the
-  matching headers installed. Re-run `sudo make dkms-install` after editing any
-  driver source (it re-copies `/usr/src` and rebuilds).
+- **`make dkms-install`** syncs sources into `/usr/src/icm45686-1.0`, adds the
+  package to DKMS if needed, then `build`/`install` **only for the running
+  kernel** (`KERNELRELEASE=$(uname -r)`; override with `KERNELRELEASE=…`).
+  It does **not** `dkms remove --all`, so builds for other installed kernels
+  (e.g. a new kernel that `AUTOINSTALL` already built while you are still
+  booted on the old one) are left alone. Re-run after driver-source edits.
+- **`make dkms-reinstall-all`** is the nuclear option: `dkms remove --all`,
+  wipe `/usr/src`, re-add, install for the running kernel, then
+  `dkms autoinstall` for any other kernels that have headers. Use only when
+  the DKMS tree is wedged — not for routine source updates.
 - **`make overlay-install`** = `dtbo_install` + `config_enable`: builds
   `dts/icm45686.dtbo` into `/boot/firmware/overlays/` (falls back to
   `/boot/overlays/`; override `DTBO_DIR=...`) and appends `dtoverlay=icm45686`
@@ -82,7 +86,9 @@ After reboot the kernel matches the overlay's `compatible = "invensense,icm45686
 Rebuild after a driver-source change:
 
 ```sh
-sudo make dkms-install    # re-copies /usr/src and rebuilds for the running kernel
+sudo make dkms-install    # re-copies /usr/src; rebuilds running kernel only
+# optional: also refresh every other kernel that has headers
+sudo dkms autoinstall
 ```
 
 Install (persistent, manual — non-DKMS)
