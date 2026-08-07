@@ -29,3 +29,23 @@ only on `iio-trig-hrtimer`, and align kingfisher buffered capture with ODR/FIFO 
 **Upstream FIFO changes** (watermark sizing, new packet formats, bugs): patch in
 `torvalds/linux` `drivers/iio/imu/inv_icm45600/`, then bump the vendored SHA in
 `README.md`.
+
+## Local: calibbias / OFFUSER while buffered
+
+Mainline `write_raw` for `IIO_CHAN_INFO_CALIBBIAS` uses `iio_device_claim_direct`,
+so sysfs returns `-EBUSY` whenever the IIO buffer is enabled. That forced
+userspace (kingfisher) to pause both cabin FIFOs around every OFFUSER program.
+
+**Local change** (keep when re-vendoring):
+
+1. Drop `claim_direct` for CALIBBIAS writes (scale still requires it).
+2. While `st->fifo.on`, briefly clear chip FIFO sensor enables around the IREG
+   write — userspace `/dev/iio` buffers stay open.
+3. Shadow `gyro_offuser[3]` / `accel_offuser[3]` and restamp after
+   `set_gyro_conf` / `set_accel_conf` so ODR/FS power transitions cannot leave
+   OFFUSER at zero.
+
+Test: `tests/calibbias_buffered.sh` (buffers enabled → write → readback → ODR
+rewrite → OFFUSER still present).
+
+Upstream these when proposing a patch to `inv_icm45600`.

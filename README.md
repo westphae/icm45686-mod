@@ -140,6 +140,7 @@ Once bound, the chip presents as a single IIO device under `/sys/bus/iio/devices
 ├── in_accel_filter_low_pass_3db_frequency  (w)
 ├── in_accel_filter_low_pass_3db_frequency_available
 ├── in_anglvel_{x,y,z}_raw                # ADC counts, signed
+├── in_anglvel_{x,y,z}_calibbias    (w)   # OFFUSER; writable while buffer/enable=1 (local OOT)
 ├── in_anglvel_scale                (w)   # rad/s per LSB
 ├── in_anglvel_scale_available            # ±15.625 / 31.25 / 62.5 / 125 / 250 / 500 / 1000 / 2000 / 4000 dps
 ├── in_anglvel_filter_low_pass_3db_frequency  (w)
