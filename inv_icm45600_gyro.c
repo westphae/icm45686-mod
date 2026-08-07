@@ -476,26 +476,15 @@ static int inv_icm45600_gyro_write_offset(struct inv_icm45600_state *st,
 {
 	struct device *dev = regmap_get_device(st->map);
 	s64 val64, min, max;
-	unsigned int reg;
 	s16 offset;
-	int ret;
+	int axis, ret;
 
 	if (chan->type != IIO_ANGL_VEL)
 		return -EINVAL;
 
-	switch (chan->channel2) {
-	case IIO_MOD_X:
-		reg = INV_ICM45600_IPREG_SYS1_REG_42;
-		break;
-	case IIO_MOD_Y:
-		reg = INV_ICM45600_IPREG_SYS1_REG_56;
-		break;
-	case IIO_MOD_Z:
-		reg = INV_ICM45600_IPREG_SYS1_REG_70;
-		break;
-	default:
-		return -EINVAL;
-	}
+	axis = inv_icm45600_mod_to_axis(chan->channel2);
+	if (axis < 0)
+		return axis;
 
 	/* inv_icm45600_gyro_calibbias: min - step - max in nano */
 	min = (s64)inv_icm45600_gyro_calibbias[0] * 1000000000LL -
@@ -528,14 +517,17 @@ static int inv_icm45600_gyro_write_offset(struct inv_icm45600_state *st,
 	/* clamp value limited to 14 bits signed */
 	offset = clamp(offset, -8192, 8191);
 
-	st->buffer.u16 = cpu_to_le16(offset & INV_ICM45600_GYRO_OFFUSER_MASK);
-
 	ret = pm_runtime_resume_and_get(dev);
 	if (ret)
 		return ret;
 
+	/*
+	 * No iio_device_claim_direct: OFFUSER is safe to update while the IIO
+	 * buffer is enabled. The helper quiets the chip FIFO briefly and keeps
+	 * a shadow so later ODR/FS changes can restamp it.
+	 */
 	scoped_guard(mutex, &st->lock)
-		ret = regmap_bulk_write(st->map, reg, &st->buffer.u16, sizeof(st->buffer.u16));
+		ret = inv_icm45600_set_offuser_raw(st, true, axis, offset);
 
 	pm_runtime_put_autosuspend(dev);
 	return ret;
@@ -654,11 +646,7 @@ static int inv_icm45600_gyro_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SAMP_FREQ:
 		return inv_icm45600_gyro_write_odr(indio_dev, val, val2);
 	case IIO_CHAN_INFO_CALIBBIAS:
-		if (!iio_device_claim_direct(indio_dev))
-			return -EBUSY;
-		ret = inv_icm45600_gyro_write_offset(st, chan, val, val2);
-		iio_device_release_direct(indio_dev);
-		return ret;
+		return inv_icm45600_gyro_write_offset(st, chan, val, val2);
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY: {
 		struct device *dev = regmap_get_device(st->map);
 

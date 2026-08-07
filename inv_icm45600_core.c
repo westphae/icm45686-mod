@@ -478,6 +478,133 @@ static void inv_icm45600_set_default_conf(struct inv_icm45600_sensor_conf *conf,
 		conf->filter = oldconf->filter;
 }
 
+static const unsigned int inv_icm45600_gyro_offuser_reg[] = {
+	INV_ICM45600_IPREG_SYS1_REG_42,
+	INV_ICM45600_IPREG_SYS1_REG_56,
+	INV_ICM45600_IPREG_SYS1_REG_70,
+};
+
+static const unsigned int inv_icm45600_accel_offuser_reg[] = {
+	INV_ICM45600_IPREG_SYS2_REG_24,
+	INV_ICM45600_IPREG_SYS2_REG_32,
+	INV_ICM45600_IPREG_SYS2_REG_40,
+};
+
+int inv_icm45600_mod_to_axis(enum iio_modifier mod)
+{
+	switch (mod) {
+	case IIO_MOD_X:
+		return 0;
+	case IIO_MOD_Y:
+		return 1;
+	case IIO_MOD_Z:
+		return 2;
+	default:
+		return -EINVAL;
+	}
+}
+
+/*
+ * Program one OFFUSER register and update the software shadow.
+ * While the chip FIFO is packing (st->fifo.on), briefly disable FIFO sensor
+ * enables around the IREG write so the update is atomic w.r.t. streaming —
+ * userspace IIO buffers stay open. Caller holds st->lock.
+ */
+int inv_icm45600_set_offuser_raw(struct inv_icm45600_state *st, bool gyro,
+				 unsigned int axis, s16 offset)
+{
+	const unsigned int *regs = gyro ? inv_icm45600_gyro_offuser_reg
+					: inv_icm45600_accel_offuser_reg;
+	u16 mask = gyro ? INV_ICM45600_GYRO_OFFUSER_MASK
+			: INV_ICM45600_ACCEL_OFFUSER_MASK;
+	unsigned int saved_en = st->fifo.en;
+	bool quiet = st->fifo.on && saved_en;
+	int ret, ret2 = 0;
+
+	if (axis >= 3)
+		return -EINVAL;
+
+	if (quiet) {
+		ret = inv_icm45600_buffer_set_fifo_en(st, 0);
+		if (ret)
+			return ret;
+	}
+
+	st->buffer.u16 = cpu_to_le16(offset & mask);
+	ret = regmap_bulk_write(st->map, regs[axis], &st->buffer.u16,
+				sizeof(st->buffer.u16));
+	if (!ret) {
+		if (gyro)
+			st->gyro_offuser[axis] = offset;
+		else
+			st->accel_offuser[axis] = offset;
+	}
+
+	if (quiet)
+		ret2 = inv_icm45600_buffer_set_fifo_en(st, saved_en);
+
+	return ret ? ret : ret2;
+}
+
+/* Restamp all shadowed OFFUSER values. Caller holds st->lock. */
+int inv_icm45600_restore_offuser(struct inv_icm45600_state *st)
+{
+	unsigned int saved_en = st->fifo.en;
+	bool quiet = st->fifo.on && saved_en;
+	unsigned int axis;
+	int ret, ret2 = 0;
+
+	if (quiet) {
+		ret = inv_icm45600_buffer_set_fifo_en(st, 0);
+		if (ret)
+			return ret;
+	}
+
+	for (axis = 0; axis < 3; axis++) {
+		st->buffer.u16 = cpu_to_le16(st->gyro_offuser[axis] &
+					     INV_ICM45600_GYRO_OFFUSER_MASK);
+		ret = regmap_bulk_write(st->map, inv_icm45600_gyro_offuser_reg[axis],
+					&st->buffer.u16, sizeof(st->buffer.u16));
+		if (ret)
+			goto out;
+		st->buffer.u16 = cpu_to_le16(st->accel_offuser[axis] &
+					     INV_ICM45600_ACCEL_OFFUSER_MASK);
+		ret = regmap_bulk_write(st->map, inv_icm45600_accel_offuser_reg[axis],
+					&st->buffer.u16, sizeof(st->buffer.u16));
+		if (ret)
+			goto out;
+	}
+
+out:
+	if (quiet)
+		ret2 = inv_icm45600_buffer_set_fifo_en(st, saved_en);
+	return ret ? ret : ret2;
+}
+
+/* Seed shadows from chip at probe. Caller holds st->lock. */
+int inv_icm45600_load_offuser_shadow(struct inv_icm45600_state *st)
+{
+	unsigned int axis;
+	int ret;
+
+	for (axis = 0; axis < 3; axis++) {
+		ret = regmap_bulk_read(st->map, inv_icm45600_gyro_offuser_reg[axis],
+				       &st->buffer.u16, sizeof(st->buffer.u16));
+		if (ret)
+			return ret;
+		st->gyro_offuser[axis] = sign_extend32(
+			le16_to_cpup(&st->buffer.u16) & INV_ICM45600_GYRO_OFFUSER_MASK, 13);
+
+		ret = regmap_bulk_read(st->map, inv_icm45600_accel_offuser_reg[axis],
+				       &st->buffer.u16, sizeof(st->buffer.u16));
+		if (ret)
+			return ret;
+		st->accel_offuser[axis] = sign_extend32(
+			le16_to_cpup(&st->buffer.u16) & INV_ICM45600_ACCEL_OFFUSER_MASK, 13);
+	}
+	return 0;
+}
+
 int inv_icm45600_set_accel_conf(struct inv_icm45600_state *st,
 				struct inv_icm45600_sensor_conf *conf,
 				unsigned int *sleep_ms)
@@ -527,8 +654,12 @@ int inv_icm45600_set_accel_conf(struct inv_icm45600_state *st,
 	}
 
 	/* Update the sensor accel mode. */
-	return inv_icm45600_set_pwr_mgmt0(st, st->conf.gyro.mode, conf->mode,
-					  sleep_ms);
+	ret = inv_icm45600_set_pwr_mgmt0(st, st->conf.gyro.mode, conf->mode,
+					 sleep_ms);
+	if (ret)
+		return ret;
+
+	return inv_icm45600_restore_offuser(st);
 }
 
 int inv_icm45600_set_gyro_conf(struct inv_icm45600_state *st,
@@ -573,8 +704,13 @@ int inv_icm45600_set_gyro_conf(struct inv_icm45600_state *st,
 	}
 
 	/* Update the sensor gyro mode. */
-	return inv_icm45600_set_pwr_mgmt0(st, conf->mode, st->conf.accel.mode,
-					  sleep_ms);
+	ret = inv_icm45600_set_pwr_mgmt0(st, conf->mode, st->conf.accel.mode,
+					 sleep_ms);
+	if (ret)
+		return ret;
+
+	/* Mode/ODR/FS changes can clear volatile OFFUSER — restamp shadow. */
+	return inv_icm45600_restore_offuser(st);
 }
 
 int inv_icm45600_debugfs_reg(struct iio_dev *indio_dev, unsigned int reg,
@@ -894,6 +1030,11 @@ int inv_icm45600_core_probe(struct regmap *regmap, const struct inv_icm45600_chi
 		return ret;
 
 	ret = inv_icm45600_setup(st, chip_info, reset, bus_setup);
+	if (ret)
+		return ret;
+
+	scoped_guard(mutex, &st->lock)
+		ret = inv_icm45600_load_offuser_shadow(st);
 	if (ret)
 		return ret;
 

@@ -146,6 +146,8 @@ extern const int inv_icm45686_gyro_scale[][2];
  *  @chip_info:		chip driver data.
  *  @timestamp:		interrupt timestamps.
  *  @fifo:		FIFO management structure.
+ *  @gyro_offuser:	shadow of GYRO_*_OFFUSER (signed 14-bit raw).
+ *  @accel_offuser:	shadow of ACCEL_*_OFFUSER (signed 14-bit raw).
  *  @buffer:		data transfer buffer aligned for DMA.
  */
 struct inv_icm45600_state {
@@ -163,6 +165,8 @@ struct inv_icm45600_state {
 		s64 accel;
 	} timestamp;
 	struct inv_icm45600_fifo fifo;
+	s16 gyro_offuser[3];
+	s16 accel_offuser[3];
 	u8 accel_ui_lpf_sel;
 	u8 gyro_ui_lpf_sel;
 	union {
@@ -392,6 +396,13 @@ int inv_icm45600_set_accel_conf(struct inv_icm45600_state *st,
 int inv_icm45600_set_gyro_conf(struct inv_icm45600_state *st,
 			       struct inv_icm45600_sensor_conf *conf,
 			       unsigned int *sleep_ms);
+
+/* OFFUSER / calibbias helpers (caller holds st->lock unless noted). */
+int inv_icm45600_mod_to_axis(enum iio_modifier mod);
+int inv_icm45600_set_offuser_raw(struct inv_icm45600_state *st, bool gyro,
+				 unsigned int axis, s16 offset);
+int inv_icm45600_restore_offuser(struct inv_icm45600_state *st);
+int inv_icm45600_load_offuser_shadow(struct inv_icm45600_state *st);
 
 int inv_icm45600_debugfs_reg(struct iio_dev *indio_dev, unsigned int reg,
 			     unsigned int writeval, unsigned int *readval);
